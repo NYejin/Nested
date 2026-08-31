@@ -10,12 +10,15 @@
 import { houses as demoHouses } from "@/lib/data";
 import { USE_REAL_API, API_BASE_URL } from "@/lib/api/config";
 import { apiRoomToHouse, type ApiRoom } from "@/lib/api/adapters";
+import { fetchWithTimeout } from "@/lib/api/fetch-timeout";
 import type { House } from "@/lib/types";
 
 export async function loadHouses(): Promise<House[]> {
   if (USE_REAL_API) {
     try {
-      const res = await fetch(`${API_BASE_URL}/rooms`, { cache: "no-store" });
+      const res = await fetchWithTimeout(`${API_BASE_URL}/rooms`, {
+        cache: "no-store",
+      });
       if (res.ok) {
         const data = await res.json();
         const rooms: ApiRoom[] = Array.isArray(data) ? data : data.items ?? [];
