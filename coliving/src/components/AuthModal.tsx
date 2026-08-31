@@ -4,14 +4,7 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useAuth } from "@/lib/api/useAuth";
-import { API_BASE_URL } from "@/lib/api/config";
 import { useLanguage } from "@/contexts/LanguageContext";
-
-// Kicks off a provider OAuth flow. The backend handles the handshake and
-// redirects back to /auth/callback with tokens.
-function social(provider: "google" | "kakao" | "naver") {
-  window.location.href = `${API_BASE_URL}/auth/${provider}`;
-}
 
 const socialBtn: React.CSSProperties = {
   width: "100%",
@@ -35,7 +28,7 @@ export function AuthModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { login, register } = useAuth();
+  const { login, register, oauth } = useAuth();
   const { locale, setLocale } = useLanguage();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
@@ -48,10 +41,27 @@ export function AuthModal({
   // we keep the modal open and show a check-your-email message.
   const [notice, setNotice] = useState("");
   const [mounted, setMounted] = useState(false);
+  // 소셜 버튼을 눌렀을 때만 별도로 표시 — 백엔드를 깨우는 동안(최대 20초)
+  // 버튼이 아무 반응 없어 보이지 않도록 로딩 문구를 보여준다.
+  const [socialBusy, setSocialBusy] = useState<
+    "google" | "kakao" | "naver" | null
+  >(null);
 
   useEffect(() => setMounted(true), []);
 
   if (!open || !mounted) return null;
+
+  async function handleSocial(provider: "google" | "kakao" | "naver") {
+    setSocialBusy(provider);
+    try {
+      // startOAuth는 성공하든 실패하든 끝에 페이지를 이동시키므로 이 화면은
+      // 곧 언마운트된다 — 못 깨워도 이동은 시도하기 때문에 별도 에러 처리는
+      // 필요 없다.
+      await oauth(provider);
+    } finally {
+      setSocialBusy(null);
+    }
+  }
 
   async function submit() {
     setError("");
@@ -378,35 +388,58 @@ export function AuthModal({
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <button
             className="btn press"
-            onClick={() => social("google")}
-            style={socialBtn}
+            onClick={() => handleSocial("google")}
+            disabled={socialBusy !== null}
+            style={{ ...socialBtn, opacity: socialBusy ? 0.6 : 1 }}
           >
-            <span style={{ fontWeight: 700, color: "#4285F4" }}>G</span>{" "}
-            Google로 계속하기
+            {socialBusy === "google" ? (
+              "연결 중…"
+            ) : (
+              <>
+                <span style={{ fontWeight: 700, color: "#4285F4" }}>G</span>{" "}
+                Google로 계속하기
+              </>
+            )}
           </button>
           <button
             className="btn press"
-            onClick={() => social("kakao")}
+            onClick={() => handleSocial("kakao")}
+            disabled={socialBusy !== null}
             style={{
               ...socialBtn,
               background: "#FEE500",
               borderColor: "#FEE500",
               color: "#191600",
+              opacity: socialBusy ? 0.6 : 1,
             }}
           >
-            <span style={{ fontWeight: 700 }}>K</span> 카카오로 계속하기
+            {socialBusy === "kakao" ? (
+              "연결 중…"
+            ) : (
+              <>
+                <span style={{ fontWeight: 700 }}>K</span> 카카오로 계속하기
+              </>
+            )}
           </button>
           <button
             className="btn press"
-            onClick={() => social("naver")}
+            onClick={() => handleSocial("naver")}
+            disabled={socialBusy !== null}
             style={{
               ...socialBtn,
               background: "#03C75A",
               borderColor: "#03C75A",
               color: "#fff",
+              opacity: socialBusy ? 0.6 : 1,
             }}
           >
-            <span style={{ fontWeight: 800 }}>N</span> 네이버로 계속하기
+            {socialBusy === "naver" ? (
+              "연결 중…"
+            ) : (
+              <>
+                <span style={{ fontWeight: 800 }}>N</span> 네이버로 계속하기
+              </>
+            )}
           </button>
         </div>
 

@@ -254,7 +254,14 @@ export async function getRoomAvailabilityMonth(
 
 export async function getRoom(id: string): Promise<House> {
   if (USE_REAL_API) {
-    const r = await api.get<ApiRoom>(`/rooms/${id}`, { auth: false });
+    // homes/[id]는 force-dynamic SSR이라 Vercel 서버리스 함수 예산(300초) 안에서
+    // 끝나야 한다. 백엔드가 느리거나 안 붙으면 빨리 실패해서 이 페이지의 기존
+    // try/catch가 데모 데이터로 폴백하도록, 클라이언트 기본 타임아웃(25초)보다
+    // 훨씬 짧게 지정한다.
+    const r = await api.get<ApiRoom>(`/rooms/${id}`, {
+      auth: false,
+      timeoutMs: 8000,
+    });
     return apiRoomToHouse(r);
   }
   // demo path — house detail is served from the local seed via /api/houses
