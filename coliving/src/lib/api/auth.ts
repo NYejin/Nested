@@ -5,6 +5,7 @@
 
 import { API_BASE_URL, USE_REAL_API } from "./config";
 import { api } from "./client";
+import { fetchWithTimeout } from "./fetch-timeout";
 import {
   authStore,
   type AuthTokens,
@@ -296,7 +297,21 @@ export async function changePassword(
 export type OAuthProvider = "google" | "kakao" | "naver" | "apple";
 
 // Kick off an OAuth flow by navigating to the API's provider route.
-export function startOAuth(provider: OAuthProvider) {
+//
+// Render 무료 인스턴스는 한동안 요청이 없으면 잠들고, 이 리다이렉트가 그
+// 첫 요청이 되는 경우 인스턴스가 아직 깨어나는 중이라 503으로 실패할 수
+// 있다(실제로 재현됨: GET /auth/kakao 503 Service Unavailable). 백엔드에는
+// 이미 이런 상황을 위한 /health 엔드포인트가 있으므로(DB를 건드리지 않고
+// 즉시 응답 — 원래는 UptimeRobot 같은 외부 크론이 주기적으로 찔러서 인스턴스가
+// 잠들지 않게 하는 용도), 리다이렉트 전에 먼저 그걸 찔러 인스턴스를 깨워두고
+// 나서 이동한다. 깨우기가 실패하거나 시간 안에 안 끝나도 일단 이동은
+// 시도한다 — 사용자가 화면에 갇히지 않도록.
+export async function startOAuth(provider: OAuthProvider): Promise<void> {
+  try {
+    await fetchWithTimeout(`${API_BASE_URL}/health`, {}, 20000);
+  } catch {
+    // 못 깨워도 리다이렉트는 그대로 진행 — 아래에서 최선을 다해 이동한다.
+  }
   window.location.href = `${API_BASE_URL}/auth/${provider}`;
 }
 
