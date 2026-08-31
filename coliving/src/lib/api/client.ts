@@ -10,6 +10,7 @@
 
 import { API_BASE_URL } from "./config";
 import { authStore } from "./auth-store";
+import { fetchWithTimeout } from "./fetch-timeout";
 
 export class ApiError extends Error {
   constructor(
@@ -38,7 +39,7 @@ async function refreshTokens(): Promise<boolean> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        const res = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ refreshToken }),
@@ -74,7 +75,7 @@ export async function apiFetch<T = unknown>(
   const token = authStore.getAccessToken();
   if (auth && token) finalHeaders["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
     ...rest,
     headers: finalHeaders,
     body: body !== undefined ? JSON.stringify(body) : undefined,
