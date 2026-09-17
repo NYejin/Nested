@@ -1,49 +1,32 @@
-# Nested — monorepo (partial build)
+# nested-mono — 백엔드 모노레포
 
-Implements three slices of the [architecture reference](../ARCHITECTURE.md):
+세 개의 독립 npm 프로젝트로 구성됩니다. 루트 통합 `package.json`은 없고, 각 폴더에서 개별적으로 `npm install`합니다.
 
-## `packages/ui` — Atomic Design component library (shadcn-based)
+## `apps/api` — NestJS 백엔드
 
-Design tokens + atoms + molecules, built on Radix primitives and `class-variance-authority`,
-themed with the fixed brand palette (coral `#FF5A5F` / teal `#00A699`) via CSS variables and a
-shared Tailwind preset. Dark mode, WCAG AA focus rings, and reduced-motion are built in.
+실제 프로덕션 API. Prisma(PostgreSQL) + Redis + Socket.io 기반 NestJS 서버로, 인증·숙소·예약·결제·매칭·채팅·관리자 등 20개 모듈을 포함합니다. 상세 내용은 [apps/api/README-api.md](./apps/api/README-api.md) 참고.
 
-- **Tokens** — `src/tokens/globals.css` (CSS vars, light + dark) and `tailwind-preset.ts`.
-- **Atoms** — Button, Input, Textarea, Label, Badge, Chip, Avatar, Skeleton, Spinner, Divider,
-  IconButton, Rating, Switch, Tooltip.
-- **Molecules** — SearchBar, PriceTag, FilterChip, MessageBubble (with read receipts),
-  Tabs, Accordion, Dropdown, Breadcrumb, Pagination, StatCard, EmptyState.
-- Verify: `cd packages/ui && npm install && npx tsc --noEmit`.
-- Visual gallery: `cd showcase && npm install && npm run dev`.
+- 로컬 실행: `cd apps/api && npm install && docker compose up -d && npx prisma migrate dev && npm run start:dev`
+- 테스트: `npm test`
 
-## `apps/api` — NestJS reservations module
+## `packages/ui` — 공용 UI 컴포넌트 라이브러리
 
-- **`pricing.ts`** — pure, tested price engine. `dueNow` = deposit + first month + cleaning +
-  one month maintenance + 5% service fee − coupon discount; plus full `contractTotal`.
-- **`reservations.service.ts`** — `quote` (no write), `create` (PENDING_PAYMENT hold with
-  overlap rejection), `confirmPayment` (server-side PSP verification).
-- **`prisma-reservation.repo.ts`** — overlap check + insert inside one **Serializable**
-  transaction (double-booking prevention).
-- **`psp-payment.gateway.ts`** — server-side verification against Toss / PortOne / Stripe;
-  never trusts the client's success claim, always re-checks the paid amount.
-- **DTOs** — Zod schemas + a `ZodValidationPipe`.
-- Run tests: `cd apps/api && npm install && npx jest` → **17 passing**.
+Atomic Design 기반 컴포넌트 라이브러리(shadcn 스타일), Radix 프리미티브 + `class-variance-authority` 기반. 코럴(#FF5A5F)/틸(#00A699) 브랜드 팔레트를 CSS 변수 + Tailwind preset으로 테마링합니다. 다크모드, WCAG AA 포커스 링, reduced-motion 지원.
 
-### Booking flow (3-click, quote is the price authority)
+- **Tokens** — `src/tokens/`
+- **Atoms** — Avatar, Badge, Button, Input, Rating
+- **Molecules** — Breadcrumb, MessageBubble(읽음 표시 포함), SearchBar, Tabs
+- 타입체크: `cd packages/ui && npm install && npx tsc --noEmit`
 
-```
-POST /reservations/quote   → price preview (no write)
-POST /reservations         → PENDING_PAYMENT hold  (409 if dates overlap)
-POST /payments/confirm     → PSP-verify amount → CONFIRMED  (idempotent)
+## `showcase` — 컴포넌트 비주얼 갤러리
+
+`packages/ui`의 컴포넌트를 브라우저에서 직접 확인할 수 있는 Next.js 갤러리 앱.
+
+```bash
+cd showcase && npm install && npm run dev
 ```
 
-The client renders `/quote` and never computes totals for submission; `/reservations` recomputes
-server-side, and `/payments/confirm` rejects any amount that doesn't match both the stored total
-and the amount the PSP reports as actually paid.
+## 참고
 
-## What's stubbed vs. real
-
-Real and tested: pricing math, availability/overlap logic, payment-verification control flow,
-all component types and composition. Stubbed for the reference build: the live `PrismaService`
-(the repo has a guarded stub) and real PSP network calls (the gateway has the exact request shapes;
-supply secret keys via env to go live).
+- 이 폴더의 실제 서비스 코드는 `apps/api`뿐입니다. `packages/ui`와 `showcase`는 별도의 컴포넌트 라이브러리와 그 갤러리이며, **`coliving/`(메인 프론트엔드)은 이 라이브러리를 import하지 않습니다** — `coliving/package.json`에 의존성이 없고, 소스에서도 참조를 찾을 수 없습니다. 즉 `packages/ui`/`showcase`는 현재 실제 서비스와 분리된 독립 컴포넌트 라이브러리입니다.
+- 전체 저장소 구조는 [../README.md](../README.md) 참고.
