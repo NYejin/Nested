@@ -1,108 +1,94 @@
-# @nested/api — NestJS backend
+# @nested/api — NestJS 백엔드
 
-Full backend stack, wired as real NestJS modules.
+Prisma + PostgreSQL + Redis + Socket.io 기반 NestJS 백엔드. 20개 기능 모듈로 구성됩니다.
 
-## Stack
-- **NestJS 10** + **TypeScript** (strict) — modular architecture
-- **Prisma ORM** — `prisma/schema.prisma` (User, Room, Reservation, Payment, Review, Message, Coupon, RefreshToken, Image) + `PrismaService` + Serializable reservation repo
-- **REST API** — `auth`, `reservations`, `payments` controllers
-- **GraphQL** (optional) — code-first `RoomsResolver`, Apollo driver, auto-schema
-- **JWT** — `@nestjs/jwt` access(15m)/refresh(7d) tokens, `JwtStrategy`, `JwtAuthGuard`
-- **OAuth** — Google (`passport-google-oauth20`), find-or-create + token issue
-- **Redis** — `ioredis` (`RedisService`) for cache + Socket.io pub/sub adapter + BullMQ connection
-- **Socket.io** — `ChatGateway` (`/chat` namespace) with `message:send/new/read` + `typing`, Redis-adapter scaled
-- **BullMQ** — `notifications` queue + `NotificationsProcessor` worker (push/email/settlement), repeatable jobs
+## 스택
 
-## Modules
+- **NestJS 10** + TypeScript (strict)
+- **Prisma ORM** — `prisma/schema.prisma`, 모델 35개, enum 31개
+- **REST** — 모듈별 컨트롤러 (일부는 `*.controller.ts`로 분리, 일부는 `*.module.ts` 안에 인라인)
+- **GraphQL** (옵션) — code-first `RoomsResolver`, Apollo 드라이버, 자동 스키마
+- **JWT** — `@nestjs/jwt` access(15분)/refresh(7일) 토큰, `JwtStrategy`, `JwtAuthGuard`
+- **OAuth 4종** — Google, Kakao, Naver, Apple (모두 `validateOAuthUser()`로 find-or-create + 이메일 링크)
+- **Redis** (`ioredis`, `RedisService`) — 캐시 + Socket.io pub/sub 어댑터. ~~BullMQ~~는 2026-07-27 제거됨(Upstash 무료 티어 요청 할당량을 유휴 상태에서도 계속 소진해서 뺐습니다 — `notifications.module.ts` 주석 참고). 현재 알림은 큐 없이 직접 처리되며, push/email 실제 프로바이더(FCM/SES 등) 연동은 아직 없습니다.
+- **Socket.io** — `ChatGateway`(`/chat` 네임스페이스), `notifications.gateway.ts` — Redis 어댑터로 스케일
+- **이미지 업로드** — Cloudinary가 실제 사용 경로(`POST /storage/cloudinary-signature`로 서명 후 브라우저가 직접 업로드). AWS S3 + CloudFront presign(`POST /storage/presign`)도 구현돼 있으나 현재 미설정 상태의 대안 경로입니다.
+
+## 모듈 (20개)
+
 ```
-src/
-  main.ts                    # bootstrap + Redis Socket.io adapter
-  app.module.ts              # Config, GraphQL, BullMQ root, all feature modules
-  prisma/                    # PrismaModule + PrismaService
-  redis/                     # RedisModule + RedisService (ioredis)
-  modules/
-    auth/                    # JWT + Google OAuth, guards (Jwt/Google/Roles)
-    reservations/            # quote → create → confirmPayment (17 tests)
-    chat/                    # Socket.io gateway
-    notifications/           # BullMQ producer + worker
-    rooms/                   # GraphQL resolver
+src/modules/
+  auth/            # JWT + OAuth 4종, 가드(Jwt/Google/Kakao/Naver/Apple)
+  users/           # 공개 프로필, 뱃지
+  preference/      # 성향 데이터(RoommatePreference, 9개 축)
+  match/           # 룸메이트 매칭 (scoreMatch, 9축 가중치 + 3축 하드필터)
+  rooms/           # 숙소 CRUD, 검색, 유사 숙소 추천(findSimilar)
+  reservations/    # quote → create → confirmPayment
+  reviews/         # 리뷰 + tenant-review(세입자 리뷰, 뱃지)
+  messages/        # 다이렉트 메시지
+  chat/            # Socket.io 채팅 게이트웨이
+  friends/         # 친구 요청/수락/거절
+  favorites/       # 찜하기(Wishlist/Favorite)
+  coupons/         # 쿠폰 + 생일 쿠폰
+  notifications/   # 실시간 알림 게이트웨이
+  notifications-api/  # 알림 조회/읽음/삭제 REST
+  inquiries/       # 문의함
+  reports/         # 신고 관리
+  admin/           # 회원/숙소승인/공지/배너/쿠폰/휴지통/대시보드/매출
+  host/            # 호스트 대시보드/캘린더/정산/연체/수익 CSV 내보내기
+  community/       # 게시글/댓글 (Post, Comment)
+  transit/         # 다중 이동수단 API (ODSAY 미사용 — README 결정 사항 참고)
+  storage/         # Cloudinary/S3 업로드
 ```
 
-## Run
-```
-npm install
-npx prisma generate          # requires network for the query engine
-npm test                     # 17 reservation/pricing tests pass
-npm run start:dev            # needs Postgres + Redis running
-```
+## 인증 — 6가지 로그인 경로
 
-## Notes
-- `bcryptjs` (pure-JS) is used so no native build is required.
-- Prisma client generation needs network access to download the query engine;
-  the code typechecks against the shipped base types.
+- **이메일** — `POST /auth/register`, `POST /auth/login` (bcryptjs)
+- **Google** — `GET /auth/google` → `GET /auth/google/callback`
+- **Kakao** — `GET /auth/kakao` → `GET /auth/kakao/callback`
+- **Naver** — `GET /auth/naver` → `GET /auth/naver/callback`
+- **Apple** — `GET /auth/apple` → `POST /auth/apple/callback`
+- **JWT Refresh** — access(15분)/refresh(7일). Refresh 토큰은 해시(SHA-256) 저장, `POST /auth/refresh`가 회전(기존 삭제+신규 발급), `logoutAll(userId)`로 전체 세션 무효화
 
-## Storage (AWS S3 + CloudFront)
-`modules/storage/` — direct-to-S3 uploads + CDN delivery.
+## 데이터 모델 (35개)
 
-- **Presigned upload** — `POST /storage/presign` (JWT-protected) returns a
-  presigned S3 PUT URL + object key + CloudFront URL. The browser PUTs the file
-  straight to S3, keeping large uploads off the API. Type/size validated
-  (jpeg/png/webp/avif, ≤10MB).
-- **CloudFront delivery** — reads are served from `CLOUDFRONT_DOMAIN`
-  (private bucket + Origin Access Control), never from S3 directly.
-- **Signed CDN URLs** — `signedCdnUrl(key, ttl)` for private/expiring assets
-  via `@aws-sdk/cloudfront-signer`; falls back to public URL when no key pair set.
-- **Delete** — `DELETE /storage/:key` removes an object (e.g. when a listing
-  image is deleted).
+`prisma/schema.prisma` 전체 모델:
 
-Env: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_BUCKET`,
-`CLOUDFRONT_DOMAIN`, and optionally `CLOUDFRONT_KEY_PAIR_ID` / `CLOUDFRONT_PRIVATE_KEY`.
+User · RefreshToken · PasswordResetToken · EmailVerificationToken · Room · Property · HostProfile · Image · Reservation · ContractChangeRequest · ReservationCompanionMember · Payment · Review · Message · FriendRequest · Friendship · DirectConversation · DirectMessage · Coupon · Notification · Wishlist · Favorite · Inquiry · Report · Amenity · RoomAmenity · ChatRoom · CalendarBlock · Settlement · Post · Comment · RoommatePreference · Notice · Banner · TenantReview
 
-## Authentication
-`modules/auth/` — six sign-in paths, all issuing the same JWT pair.
+## 주요 REST 엔드포인트 (대표 예시 — 전체 라우트는 각 모듈 컨트롤러 참고)
 
-- **Email** — `POST /auth/register`, `POST /auth/login` (bcryptjs password hash)
-- **Google** — `GET /auth/google` → `/auth/google/callback` (passport-google-oauth20)
-- **Kakao** — `GET /auth/kakao` → `/auth/kakao/callback` (passport-kakao)
-- **Naver** — `GET /auth/naver` → `/auth/naver/callback` (passport-naver-v2)
-- **Apple** — `GET /auth/apple` → `POST /auth/apple/callback` (passport-apple)
-- **JWT Refresh Token** — access(15m)/refresh(7d). Refresh tokens are hashed
-  (SHA-256) and stored in the `RefreshToken` table; `POST /auth/refresh`
-  **rotates** them (old deleted, new issued) and rejects unknown/revoked tokens.
-  `logoutAll(userId)` revokes every session.
-
-All OAuth providers funnel through one provider-agnostic `validateOAuthUser()`
-(find-or-create + link by email), so adding a provider is just a new strategy.
-
-## Data Model (20 models)
-`prisma/schema.prisma` covers the full domain:
-
-- **User** + **HostProfile** (Host: superhost, payout info) + **RefreshToken**
-- **Property** (building/address) → **Room** (rentable unit) → **Image**
-- **Amenity** + **RoomAmenity** (M:N room amenities)
-- **Reservation** → **Payment** → **Settlement** (monthly host payout)
-- **CalendarBlock** (per-room availability/blocked dates)
-- **ChatRoom** → **Message** (guest↔host conversations)
-- **Wishlist** + **Favorite** (saved rooms)
-- **Review**, **Coupon**, **Notification**, **Report** (moderation)
-
-Enums: Role, RoomType, GenderPolicy, ReservationStatus, PaymentStatus,
-NotificationType, ReportTargetType, ReportStatus, SettlementStatus.
-
-## REST API Endpoints
-| Domain | Endpoints |
-|--------|-----------|
-| 회원가입/로그인 | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `GET /auth/me` |
-| OAuth | `GET /auth/{google,kakao,naver}`, `GET|POST /auth/{...}/callback` |
-| 숙소 CRUD | `GET /rooms`, `GET /rooms/:id`, `POST /rooms`, `PATCH /rooms/:id`, `DELETE /rooms/:id` |
-| 검색 | `GET /rooms?region=&q=&roomType=&minRent=&maxRent=&cursor=` (커서 페이지네이션) |
-| 예약 CRUD | `POST /reservations/quote`, `POST /reservations`, `GET /reservations/:id`, `PATCH /reservations/:id/cancel` |
+| 도메인 | 엔드포인트 |
+|---|---|
+| 인증 | `POST /auth/register`, `/login`, `/refresh`, `GET /auth/me`, `PATCH /auth/me`, `DELETE /auth/me`, `POST /auth/change-password`, `/forgot-password`, `/reset-password` |
+| OAuth | `GET /auth/{google,kakao,naver,apple}`, `.../callback` |
+| 성향 | `GET/PUT /me/preference` |
+| 매칭 | `GET /match`, `GET /match/:userId` |
+| 숙소 | `GET/POST /rooms`, `PATCH/DELETE /rooms/:id`, `GET /rooms/:id/similar`(유사 숙소) |
+| 예약 | `POST /reservations/quote`, `POST /reservations`, `GET /reservations/:id`, `PATCH /reservations/:id/cancel`, `GET /reservations/host` |
 | 결제 | `POST /payments/confirm` |
-| 메시지 | `GET /messages/rooms`, `POST /messages/rooms`, `GET /messages/:chatRoomId`, `POST /messages/:chatRoomId` (+ Socket.io `/chat`) |
-| 리뷰 | `GET /reviews?roomId=`, `POST /reviews`, `PATCH /reviews/:id/reply` |
-| 찜 | `GET /favorites`, `POST /favorites`, `DELETE /favorites/:roomId` |
-| 알림 | `GET /notifications`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all` |
-| 파일 업로드 | `POST /storage/presign`, `DELETE /storage/:key` |
-| 관리자 | `GET /admin/stats`, `GET|PATCH /admin/members`, `GET|PATCH /admin/rooms/pending|:id/publish`, `GET|PATCH /admin/reports` |
+| 리뷰 | `GET /reviews?roomId=`, `POST /reviews`, `GET /reviews/mine`, `GET /reviews/received` |
+| 알림 | `GET /notifications`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all`, `DELETE /notifications/:id` |
+| 호스트 | `GET /host/dashboard`, `GET /host/export/{revenue,tenants}.csv`, `GET /host/settlements` |
+| 관리자 | `GET /admin/stats`, `GET /admin/revenue/monthly`, `/admin/revenue-trend-v2`, `PATCH /admin/members/:id/{verify,role,suspend}`, `PATCH /admin/reports/:id`, `admin/notices`, `admin/banners`, `admin/coupons` CRUD, `admin/trash` |
+| 스토리지 | `POST /storage/presign`, `POST /storage/cloudinary-signature`, `DELETE /storage/:key` |
 
-Auth: JWT bearer on protected routes; `@Roles("HOST"|"ADMIN")` where noted.
+Auth: 보호된 라우트는 JWT bearer 필요, 관리자/호스트 전용 라우트는 `@Roles("HOST"|"ADMIN")`.
+
+## 로컬 실행
+
+```bash
+npm install
+docker compose up -d          # Postgres + Redis
+cp .env.example .env
+npx prisma generate
+npx prisma migrate dev
+npm run seed
+npm run start:dev             # :4000, 테스트: npm test
+```
+
+## 참고
+
+- `bcryptjs`(순수 JS)를 써서 네이티브 빌드가 필요 없습니다.
+- Prisma client 생성은 쿼리 엔진 다운로드에 네트워크가 필요합니다.
+- 전체 아키텍처는 [../../README.md](../../README.md), 프론트-백엔드 연결은 [../../INTEGRATION.md](../../INTEGRATION.md) 참고.
