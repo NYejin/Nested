@@ -12,6 +12,7 @@ Prisma + PostgreSQL + Redis + Socket.io 기반 NestJS 백엔드. 20개 기능 �
 - **OAuth 4종** — Google, Kakao, Naver, Apple (모두 `validateOAuthUser()`로 find-or-create + 이메일 링크)
 - **Redis** (`ioredis`, `RedisService`) — 캐시 + Socket.io pub/sub 어댑터. ~~BullMQ~~는 2026-07-27 제거됨(Upstash 무료 티어 요청 할당량을 유휴 상태에서도 계속 소진해서 뺐습니다 — `notifications.module.ts` 주석 참고). 현재 알림은 큐 없이 직접 처리되며, push/email 실제 프로바이더(FCM/SES 등) 연동은 아직 없습니다.
 - **Socket.io** — `ChatGateway`(`/chat` 네임스페이스), `notifications.gateway.ts` — Redis 어댑터로 스케일
+- **결제** — `POST /payments/confirm`에서 Toss / PortOne / Stripe 중 하나를 서버사이드로 검증(`psp-payment.gateway.ts`). 클라이언트가 보낸 성공 응답을 그대로 믿지 않고 PSP에 재확인합니다.
 - **이미지 업로드** — Cloudinary가 실제 사용 경로(`POST /storage/cloudinary-signature`로 서명 후 브라우저가 직접 업로드). AWS S3 + CloudFront presign(`POST /storage/presign`)도 구현돼 있으나 현재 미설정 상태의 대안 경로입니다.
 
 ## 모듈 (20개)
